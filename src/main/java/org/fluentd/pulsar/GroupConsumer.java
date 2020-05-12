@@ -1,22 +1,17 @@
-package org.fluentd.kafka;
+package org.fluentd.pulsar;
 
+import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import kafka.consumer.ConsumerConfig;
-import kafka.consumer.KafkaStream;
-import kafka.consumer.TopicFilter;
-import kafka.consumer.Whitelist;
-import kafka.consumer.Blacklist;
-import kafka.javaapi.consumer.ConsumerConnector;
-import kafka.utils.ZkUtils;
 
 import org.komamitsu.fluency.Fluency;
 
 import java.io.IOException;
-import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,21 +19,42 @@ import java.util.concurrent.Executors;
 public class GroupConsumer {
     private static final Logger LOG = LoggerFactory.getLogger(GroupConsumer.class);
 
-    private final ConsumerConnector consumer;
-    private final String topic;
+    PulsarClient client;
+    private final List<Consumer> consumerList;
     private final PropertyConfig config;
     private ExecutorService executor;
     private final Fluency fluentLogger;
 
     public GroupConsumer(PropertyConfig config) throws IOException {
         this.config = config;
-        this.consumer = kafka.consumer.Consumer.createJavaConsumerConnector(new ConsumerConfig(config.getProperties()));
-        this.topic = config.get(PropertyConfig.Constants.FLUENTD_CONSUMER_TOPICS.key);
+
+        int numThreads = config.getInt(PropertyConfig.Constants.FLUENTD_CONSUMER_THREADS.key,PropertyConfig.Constants.DEFAULT_CONSUMER_THREAD_POOL_SIZE);
+        // create pulsar client
+        client = PulsarClient.builder()
+                .serviceUrl(config.get(PropertyConfig.Constants.PULSAR_SERVICE_URL.key,PropertyConfig.Constants.PUBLIC_DEFAULT_SERVICE_URL))
+//                .ioThreads(numThreads)  - tuning
+//                .listenerThreads(numThreads) - tuning
+                .build();
+
+        // create pulsar consumer
+        this.consumerList = createPulsarConsumer(numThreads);
+        // setup fluent logger
         this.fluentLogger = setupFluentdLogger();
 
-        // for testing. Don't use on production
-        if (config.getBoolean(PropertyConfig.Constants.FLUENTD_CONSUMER_FROM_BEGINNING.key, false))
-            ZkUtils.maybeDeletePath(config.get(PropertyConfig.Constants.KAFKA_ZOOKEEPER_CONNECT.key), "/consumers/" + config.get(PropertyConfig.Constants.KAFKA_GROUP_ID.key));
+    }
+
+    private List<Consumer> createPulsarConsumer(int numThreads) throws PulsarClientException {
+        String topics = config.get(PropertyConfig.Constants.FLUENTD_CONSUMER_TOPICS.key);
+        List<Consumer> consumers = new ArrayList<>(numThreads);
+        for (int  i = 0; i< numThreads; i++) {
+            consumers.add(client.newConsumer()
+                    .subscriptionName(config.get(PropertyConfig.Constants.PULSAR_CONSUMER_SUBSCRIPTION_NAME.key, PropertyConfig.Constants.PULSAR_DEFAULT_SUBSCRIPTION_NAME))
+                    .subscriptionType(SubscriptionType.Shared) // enable for multi-instance
+                    //.ackTimeout(10, TimeUnit.SECONDS) - tuning
+                    .topicsPattern(topics)
+                    .subscribe());
+        }
+        return consumers;
     }
 
     public Fluency setupFluentdLogger() throws IOException {
@@ -90,8 +106,13 @@ public class GroupConsumer {
                 executor.shutdownNow();
             }
         }
-        if (consumer != null) consumer.shutdown();
 
+        closeConsumers();
+        closePulsarClient();
+        closeFluentLogger();
+    }
+
+    private void closeFluentLogger() {
         try {
             fluentLogger.close();
             for (int i  =  0; i < 30; i++) {
@@ -106,37 +127,38 @@ public class GroupConsumer {
             LOG.error("failed to close fluentd logger completely", e);
         }
     }
- 
+
+    private void closePulsarClient() {
+        if (client != null) {
+            try {
+                client.close();
+            } catch (PulsarClientException e) {
+                LOG.error("failed to close pulsar client", e);
+            }
+        }
+    }
+
+    private void closeConsumers() {
+        if (consumerList != null) {
+            try {
+                for (final Consumer consumer : consumerList) consumer.close();
+            } catch (PulsarClientException e) {
+                LOG.error("failed to close pulsar consumer", e);
+                e.printStackTrace();
+            }
+        }
+    }
+
     public void run() {
-        int numThreads = config.getInt(PropertyConfig.Constants.FLUENTD_CONSUMER_THREADS.key);
-        List<KafkaStream<byte[], byte[]>> streams = setupKafkaStream(numThreads);
+        int numThreads = config.getInt(PropertyConfig.Constants.FLUENTD_CONSUMER_THREADS.key,PropertyConfig.Constants.DEFAULT_CONSUMER_THREAD_POOL_SIZE);
 
-        // now create an object to consume the messages
         executor = Executors.newFixedThreadPool(numThreads);
-        for (final KafkaStream stream : streams) {
-            executor.submit(new FluentdHandler(consumer, stream, config, fluentLogger, executor));
+        // now create an object to consume the messages
+        for (final Consumer consumer : consumerList) {
+            executor.submit(new FluentdHandler(consumer, config, fluentLogger, executor));
         }
     }
 
-    public List<KafkaStream<byte[], byte[]>> setupKafkaStream(int numThreads) {
-        String topics = config.get(PropertyConfig.Constants.FLUENTD_CONSUMER_TOPICS.key);
-        String topicsPattern = config.get(PropertyConfig.Constants.FLUENTD_CONSUMER_TOPICS_PATTERN.key, "whitelist");
-        TopicFilter topicFilter;
-
-        switch (topicsPattern) {
-        case "whitelist":
-            topicFilter = new Whitelist(topics);
-            break;
-        case "blacklist":
-            topicFilter = new Blacklist(topics);
-            break;
-        default:
-            throw new RuntimeException("'" + topicsPattern + "' topics pattern is not supported");
-        }
-
-        return consumer.createMessageStreamsByFilter(topicFilter, numThreads);
-    }
- 
     public static void main(String[] args) throws IOException {
         final PropertyConfig pc = new PropertyConfig(args[0]);
         final GroupConsumer gc = new GroupConsumer(pc);

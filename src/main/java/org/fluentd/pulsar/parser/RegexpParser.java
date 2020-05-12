@@ -1,11 +1,9 @@
-package org.fluentd.kafka.parser;
+package org.fluentd.pulsar.parser;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Iterator;
-
-import kafka.message.MessageAndMetadata;
 
 import org.jcodings.specific.UTF8Encoding;
 import org.joni.Matcher;
@@ -14,7 +12,7 @@ import org.joni.Regex;
 import org.joni.Region;
 import org.joni.NameEntry;
 
-import org.fluentd.kafka.PropertyConfig;
+import org.fluentd.pulsar.PropertyConfig;
 
 public class RegexpParser extends MessageParser {
     private final Regex regex;
@@ -29,9 +27,9 @@ public class RegexpParser extends MessageParser {
     }
 
     @Override
-    public Map<String, Object> parse(MessageAndMetadata<byte[], byte[]> entry) throws Exception {
+    public Map<String, Object> parse(byte[] bytes) throws RuntimeException {
         HashMap<String, Object> data = new HashMap<String, Object>();
-        byte[] rawMessage = entry.message();
+        byte[] rawMessage = bytes;
         Matcher matcher = regex.matcher(rawMessage);
 
         int result = matcher.search(0, rawMessage.length, Option.DEFAULT);

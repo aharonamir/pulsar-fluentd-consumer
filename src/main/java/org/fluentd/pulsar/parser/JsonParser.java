@@ -1,18 +1,15 @@
-package org.fluentd.kafka.parser;
+package org.fluentd.pulsar.parser;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.HashMap;
 import java.io.IOException;
 
-import kafka.message.MessageAndMetadata;
-
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.annotation.JsonAutoDetect;
 
-import org.fluentd.kafka.PropertyConfig;
+import org.fluentd.pulsar.PropertyConfig;
 
 public class JsonParser extends MessageParser {
     private final static ObjectMapper mapper = new ObjectMapper(new JsonFactory());
@@ -23,9 +20,9 @@ public class JsonParser extends MessageParser {
     }
 
     @Override
-    public Map<String, Object> parse(MessageAndMetadata<byte[], byte[]> entry) throws Exception {
+    public Map<String, Object> parse(byte[] bytes) throws Exception {
         try {
-            return mapper.readValue(new String(entry.message(), StandardCharsets.UTF_8), typeRef);
+            return mapper.readValue(new String(bytes, StandardCharsets.UTF_8), typeRef);
         } catch (IOException e) {
             throw new RuntimeException(e); // Avoid IOException conflict with fluency logger
         }

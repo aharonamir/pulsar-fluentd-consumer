@@ -1,4 +1,4 @@
-package org.fluentd.kafka;
+package org.fluentd.pulsar;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -6,7 +6,6 @@ import java.io.InputStream;
 import java.io.FileInputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Properties;
@@ -25,11 +24,24 @@ public class PropertyConfig {
         FLUENTD_CONSUMER_BATCH_SIZE("fluentd.consumer.batch.size"),
         FLUENTD_CONSUMER_BACKUP_DIR("fluentd.consumer.backup.dir"),
         FLUENTD_CONSUMER_FROM_BEGINNING("fluentd.consumer.from.beginning"),
-        KAFKA_ZOOKEEPER_CONNECT("zookeeper.connect"),
-        KAFKA_GROUP_ID("group.id");
+        // pulsar
+        PULSAR_SERVICE_URL("pulsar.service.url"),
+        PULSAR_MSG_TTL("pulsar.msg.ttl"),
+        PULSAR_RETENTION_SIZE_MB("pulsar.retention.size.mb"),
+        PULSAR_RETENTION_TIME_MIN("pulsar.retention.time.min"),
+        PULSAR_ADMIN_URL("pulsar.admin.url"),
+        PULSAR_CONSUMER_THREAD_POOL_SIZE("pulsar.consumers.thread.pool.size"),
+        PULSAR_CONSUMER_SUBSCRIPTION_NAME("pulsar.consumer.subscription.name"),
+        PULSAR_CLUSTERS("pulsar.clusters");
 
         public static final int DEFAULT_BATCH_SIZE = 1000;
-
+        public static final String PULSAR_PREFIX = "pulsar://";
+        public static final String PERSISTENT_PREFIX = "persistent://";
+        public static final String PUBLIC_NAMESPACE = "public";
+        public static final int DEFAULT_CONSUMER_THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors();
+        public static final String PUBLIC_DEFAULT_SERVICE_URL = "pulsar://localhost:6650";
+        public static final String PULSAR_DEFAULT_ADMIN_URL = "http://localhost:8080";
+        public static final String PULSAR_DEFAULT_SUBSCRIPTION_NAME = String.format("sub-%d",System.currentTimeMillis() & 0xFFFF);
         public final String key;
 
         Constants(String key) {

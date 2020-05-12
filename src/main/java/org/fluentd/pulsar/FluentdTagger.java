@@ -1,4 +1,4 @@
-package org.fluentd.kafka;
+package org.fluentd.pulsar;
 
 public class FluentdTagger {
     private final boolean fixedTag;
